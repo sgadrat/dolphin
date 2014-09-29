@@ -381,7 +381,8 @@ bool AVIDump::CreateFile()
 	s_stream->codec->bit_rate = 400000;
 	s_stream->codec->width = s_width;
 	s_stream->codec->height = s_height;
-	s_stream->codec->time_base = (AVRational){1, static_cast<int>(VideoInterface::TargetRefreshRate)};
+	//s_stream->codec->time_base = (AVRational){1, static_cast<int>(VideoInterface::TargetRefreshRate)};
+	s_stream->codec->time_base = (AVRational){1, 30};
 	s_stream->codec->gop_size = 12;
 	s_stream->codec->pix_fmt = g_Config.bUseFFV1 ? AV_PIX_FMT_BGRA : AV_PIX_FMT_YUV420P;
 
@@ -416,14 +417,6 @@ static void PreparePacket(AVPacket* pkt)
 	av_init_packet(pkt);
 	pkt->data = nullptr;
 	pkt->size = 0;
-	if (s_stream->codec->coded_frame->pts != AV_NOPTS_VALUE)
-	{
-		pkt->pts = av_rescale_q(s_stream->codec->coded_frame->pts,
-		                        s_stream->codec->time_base, s_stream->time_base);
-	}
-	if (s_stream->codec->coded_frame->key_frame)
-		pkt->flags |= AV_PKT_FLAG_KEY;
-	pkt->stream_index = s_stream->index;
 }
 
 void AVIDump::AddFrame(const u8* data, int width, int height)
@@ -453,6 +446,19 @@ void AVIDump::AddFrame(const u8* data, int width, int height)
 	while (!error && got_packet)
 	{
 		// Write the compressed frame in the media file.
+		if (pkt.pts != AV_NOPTS_VALUE)
+		{
+			pkt.pts = av_rescale_q(pkt.pts,
+						s_stream->codec->time_base, s_stream->time_base);
+		}
+		if (pkt.dts != AV_NOPTS_VALUE)
+		{
+			pkt.dts = av_rescale_q(pkt.dts,
+						s_stream->codec->time_base, s_stream->time_base);
+		}
+		if (s_stream->codec->coded_frame->key_frame)
+			pkt.flags |= AV_PKT_FLAG_KEY;
+		pkt.stream_index = s_stream->index;
 		av_interleaved_write_frame(s_format_context, &pkt);
 
 		// Handle delayed frames.
