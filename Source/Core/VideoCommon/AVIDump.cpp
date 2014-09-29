@@ -366,10 +366,10 @@ bool AVIDump::CreateFile()
 
 	s_format_context = avformat_alloc_context();
 	snprintf(s_format_context->filename, sizeof(s_format_context->filename), "%s",
-	         (File::GetUserPath(D_DUMPFRAMES_IDX) + "framedump0.avi").c_str());
+	         (File::GetUserPath(D_DUMPFRAMES_IDX) + "framedump0.ts").c_str());
 	File::CreateFullPath(s_format_context->filename);
 
-	if (!(s_format_context->oformat = av_guess_format("avi", nullptr, nullptr)) ||
+	if (!(s_format_context->oformat = av_guess_format("mpegts", nullptr, nullptr)) ||
 	    !(s_stream = avformat_new_stream(s_format_context, codec)))
 	{
 		return false;
