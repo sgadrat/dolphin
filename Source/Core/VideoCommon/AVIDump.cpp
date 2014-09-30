@@ -17,6 +17,7 @@
 #include "Core/HW/VideoInterface.h" //for TargetRefreshRate
 #include "VideoCommon/AVIDump.h"
 #include "VideoCommon/VideoConfig.h"
+#include "Common/Timer.h"
 
 #ifdef _WIN32
 
@@ -335,6 +336,8 @@ static int s_height;
 static int s_size;
 static u64 s_last_frame;
 bool b_start_dumping = false;
+static Common::Timer s_timer;
+static int64_t s_last_pts;
 
 static void InitAVCodec()
 {
@@ -352,6 +355,10 @@ bool AVIDump::Start(int w, int h)
 	s_height = h;
 
 	s_last_frame = CoreTiming::GetTicks();
+
+	s_timer.Start();
+	s_timer.Update();
+	s_last_pts = AV_NOPTS_VALUE;
 
 	InitAVCodec();
 	bool success = CreateFile();
@@ -375,16 +382,27 @@ bool AVIDump::CreateFile()
 		return false;
 	}
 
-	s_stream->codec->codec_id = g_Config.bUseFFV1 ? AV_CODEC_ID_FFV1
-	                                              : s_format_context->oformat->video_codec;
+	/*s_stream->codec->codec_id = g_Config.bUseFFV1 ? AV_CODEC_ID_FFV1
+	                                              : s_format_context->oformat->video_codec;*/
+	s_stream->codec->codec_id = AV_CODEC_ID_MPEG2VIDEO;
+	//s_stream->codec->codec_id = AV_CODEC_ID_H264;
+	//s_stream->codec->profile = FF_PROFILE_H264_BASELINE;
 	s_stream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
 	s_stream->codec->bit_rate = 400000;
 	s_stream->codec->width = s_width;
 	s_stream->codec->height = s_height;
-	//s_stream->codec->time_base = (AVRational){1, static_cast<int>(VideoInterface::TargetRefreshRate)};
-	s_stream->codec->time_base = (AVRational){1, 30};
+	s_stream->codec->time_base = (AVRational){1, static_cast<int>(VideoInterface::TargetRefreshRate)};
 	s_stream->codec->gop_size = 12;
+	s_stream->codec->me_range = 16;
+	s_stream->codec->max_qdiff = 4;
+	s_stream->codec->qmin = 10;
+	s_stream->codec->qmax = 51;
+	s_stream->codec->qcompress = 0.6;
+	s_stream->codec->max_b_frames = 0;
+	//s_stream->codec->thread_count = 4;
+	//s_stream->codec->thread_type = FF_THREAD_SPLICE;
 	s_stream->codec->pix_fmt = g_Config.bUseFFV1 ? AV_PIX_FMT_BGRA : AV_PIX_FMT_YUV420P;
+	s_stream->codec->flags = CODEC_FLAG_LOW_DELAY;
 
 	if (!(codec = avcodec_find_encoder(s_stream->codec->codec_id)) ||
 	    (avcodec_open2(s_stream->codec, codec, nullptr) < 0))
@@ -441,8 +459,13 @@ void AVIDump::AddFrame(const u8* data, int width, int height)
 	// Encode and write the image.
 	AVPacket pkt;
 	PreparePacket(&pkt);
-	int got_packet;
-	int error = avcodec_encode_video2(s_stream->codec, &pkt, s_scaled_frame, &got_packet);
+	int got_packet = 0;
+	int error = 0;
+	s_scaled_frame->pts = (s_timer.GetTimeDifference() * s_stream->codec->time_base.den) / 1000;
+	if (s_scaled_frame->pts != s_last_pts || s_last_pts == AV_NOPTS_VALUE) {
+		s_last_pts = s_scaled_frame->pts;
+		error = avcodec_encode_video2(s_stream->codec, &pkt, s_scaled_frame, &got_packet);
+	}
 	while (!error && got_packet)
 	{
 		// Write the compressed frame in the media file.
